@@ -13,18 +13,14 @@ from pedalboard.io import AudioFile
 import os
 import uuid
 import time
-
 app = FastAPI(title="VocalForge Audio Service")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 RENDERS = {}
-
 class ChainRequest(BaseModel):
     analysis: Dict
     warmth: int = 50
@@ -32,12 +28,10 @@ class ChainRequest(BaseModel):
     compression: int = 50
     space: int = 50
     character: int = 50
-
 class RenderRequest(BaseModel):
     file_id: str
     chain: List[Dict]
     mode: str = "wet"
-
 @app.post("/analyze")
 async def analyze(file: UploadFile = File(...)):
     try:
@@ -46,29 +40,23 @@ async def analyze(file: UploadFile = File(...)):
         tmp_path = f"/tmp/{file_id}{suffix}"
         with open(tmp_path, "wb") as f:
             f.write(await file.read())
-
         y, sr = librosa.load(tmp_path, sr=48000, mono=True)
-
         chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
         key_index = int(np.argmax(np.sum(chroma, axis=1)))
         keys = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
         key = keys[key_index]
-
-        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+   tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
         tempo = float(np.atleast_1d(tempo)[0])
-
         rms = librosa.feature.rms(y=y)[0]
         dynamic_range = float(20 * np.log10(np.max(rms) / (np.mean(rms) + 1e-9)))
         peak_db = float(20 * np.log10(np.max(np.abs(y)) + 1e-9))
-
         spec = np.abs(librosa.stft(y))
         freqs = librosa.fft_frequencies(sr=sr)
         sib_band = (freqs >= 5000) & (freqs <= 9000)
         sib_energy = float(np.mean(spec[sib_band, :]))
         mud_band = (freqs >= 200) & (freqs <= 400)
         mud_energy = float(np.mean(spec[mud_band, :]))
-
-        issues = []
+        issues = [
         if mud_energy > np.mean(spec) * 1.3:
             issues.append("muddy_200_400hz")
         if sib_energy > np.mean(spec) * 1.4:
@@ -79,11 +67,9 @@ async def analyze(file: UploadFile = File(...)):
             issues.append("near_clipping")
         if peak_db < -12:
             issues.append("low_recording_level")
-
         f0, _, _ = librosa.pyin(y, fmin=80, fmax=500, sr=sr)
         f0_clean = f0[~np.isnan(f0)]
         median_f0 = float(np.median(f0_clean)) if len(f0_clean) > 0 else 200
-
         if median_f0 < 130:
             vocal_type = "male_sung"
         elif median_f0 < 200:
@@ -118,7 +104,7 @@ async def generate_chain(req: ChainRequest):
         space = req.space / 100.0
         character = req.character / 100.0
 
-        chain = []
+    chain = []
         hp_freq = 80 + int(warmth * 20)
         chain.append({"type": "highpass", "freq": hp_freq, "q": 0.7})
 
@@ -153,7 +139,6 @@ async def generate_chain(req: ChainRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 def build_pedalboard(chain, include_time_effects=True):
     plugins = []
     for step in chain:
@@ -176,7 +161,6 @@ def build_pedalboard(chain, include_time_effects=True):
         elif t == "limiter":
             plugins.append(Limiter(threshold_db=step["ceiling"]))
     return Pedalboard(plugins)
-
 @app.post("/render")
 async def render(req: RenderRequest):
     try:
@@ -197,13 +181,11 @@ async def render(req: RenderRequest):
         return {"render_id": out_id, "url": f"/download/{out_id}", "mode": req.mode}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/download/{render_id}")
 async def download(render_id: str):
     if render_id not in RENDERS:
         raise HTTPException(status_code=404, detail="Render not found")
     return FileResponse(RENDERS[render_id], media_type="audio/wav")
-
 @app.get("/health")
 async def health():
     return {"status": "ok", "time": time.time()}
